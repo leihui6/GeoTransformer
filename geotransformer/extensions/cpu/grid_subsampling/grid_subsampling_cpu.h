@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <cstdint>
 #include <unordered_map>
 #include "../../extra/cloud/cloud.h"
 
@@ -29,8 +30,8 @@ void single_grid_subsampling_cpu(
 void grid_subsampling_cpu(
   std::vector<PointXYZ>& o_points,
   std::vector<PointXYZ>& s_points,
-  std::vector<long>& o_lengths,
-  std::vector<long>& s_lengths,
+  std::vector<int64_t>& o_lengths,
+  std::vector<int64_t>& s_lengths,
   float voxel_size
 );
 

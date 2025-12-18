@@ -155,65 +155,75 @@ def registration_collate_fn_stack_mode(
     Returns:
         collated_dict (Dict)
     """
-    batch_size = len(data_dicts)
-    # merge data with the same key from different samples into a list
-    collated_dict = {}
-    for data_dict in data_dicts:
-        for key, value in data_dict.items():
-            if isinstance(value, np.ndarray):
-                value = torch.from_numpy(value)
-            if key not in collated_dict:
-                collated_dict[key] = []
-            collated_dict[key].append(value)
+    try:
+        batch_size = len(data_dicts)
+        # merge data with the same key from different samples into a list
+        collated_dict = {}
+        for data_dict in data_dicts:
+            for key, value in data_dict.items():
+                if isinstance(value, np.ndarray):
+                    value = torch.from_numpy(value)
+                if key not in collated_dict:
+                    collated_dict[key] = []
+                collated_dict[key].append(value)
 
-    # handle special keys: [ref_feats, src_feats] -> feats, [ref_points, src_points] -> points, lengths
-    feats = torch.cat(collated_dict.pop('ref_feats') + collated_dict.pop('src_feats'), dim=0)
-    points_list = collated_dict.pop('ref_points') + collated_dict.pop('src_points')
-    lengths = torch.LongTensor([points.shape[0] for points in points_list])
-    points = torch.cat(points_list, dim=0)
+        # handle special keys: [ref_feats, src_feats] -> feats, [ref_points, src_points] -> points, lengths
+        feats = torch.cat(collated_dict.pop('ref_feats') + collated_dict.pop('src_feats'), dim=0)
+        points_list = collated_dict.pop('ref_points') + collated_dict.pop('src_points')
+        lengths = torch.LongTensor([points.shape[0] for points in points_list])
+        points = torch.cat(points_list, dim=0)
 
-    if batch_size == 1:
-        # remove wrapping brackets if batch_size is 1
-        for key, value in collated_dict.items():
-            collated_dict[key] = value[0]
+        if batch_size == 1:
+            # remove wrapping brackets if batch_size is 1
+            for key, value in collated_dict.items():
+                collated_dict[key] = value[0]
 
-    collated_dict['features'] = feats
-    if precompute_data:
-        input_dict = precompute_data_stack_mode(points, lengths, num_stages, voxel_size, search_radius, neighbor_limits)
-        collated_dict.update(input_dict)
-    else:
-        collated_dict['points'] = points
-        collated_dict['lengths'] = lengths
-    collated_dict['batch_size'] = batch_size
-
+        collated_dict['features'] = feats
+        # print (f"collated_dict keys: {list(collated_dict.keys())}")
+        if precompute_data:
+            print (f"I am here {lengths}")
+            input_dict = precompute_data_stack_mode(points, lengths, num_stages, voxel_size, search_radius, neighbor_limits)
+            collated_dict.update(input_dict)
+        else:
+            collated_dict['points'] = points
+            collated_dict['lengths'] = lengths
+        collated_dict['batch_size'] = batch_size
+        print (collated_dict.keys())
+    except Exception as e:
+        print(f"Error in registration_collate_fn_stack_mode: {e}")
+        raise e
     return collated_dict
 
 
 def calibrate_neighbors_stack_mode(
     dataset, collate_fn, num_stages, voxel_size, search_radius, keep_ratio=0.8, sample_threshold=2000
 ):
-    # Compute higher bound of neighbors number in a neighborhood
-    hist_n = int(np.ceil(4 / 3 * np.pi * (search_radius / voxel_size + 1) ** 3))
-    neighbor_hists = np.zeros((num_stages, hist_n), dtype=np.int32)
-    max_neighbor_limits = [hist_n] * num_stages
+    try:
+        # Compute higher bound of neighbors number in a neighborhood
+        hist_n = int(np.ceil(4 / 3 * np.pi * (search_radius / voxel_size + 1) ** 3))
+        neighbor_hists = np.zeros((num_stages, hist_n), dtype=np.int32)
+        max_neighbor_limits = [hist_n] * num_stages
+        
+        # Get histogram of neighborhood sizes i in 1 epoch max.
+        for i in range(len(dataset)):
+            data_dict = collate_fn(
+                [dataset[i]], num_stages, voxel_size, search_radius, max_neighbor_limits, precompute_data=False
+            )
+            
+            # update histogram
+            counts = [np.sum(neighbors.numpy() < neighbors.shape[0], axis=1) for neighbors in data_dict['neighbors']]
+            hists = [np.bincount(c, minlength=hist_n)[:hist_n] for c in counts]
+            neighbor_hists += np.vstack(hists)
 
-    # Get histogram of neighborhood sizes i in 1 epoch max.
-    for i in range(len(dataset)):
-        data_dict = collate_fn(
-            [dataset[i]], num_stages, voxel_size, search_radius, max_neighbor_limits, precompute_data=True
-        )
+            if np.min(np.sum(neighbor_hists, axis=1)) > sample_threshold:
+                break
 
-        # update histogram
-        counts = [np.sum(neighbors.numpy() < neighbors.shape[0], axis=1) for neighbors in data_dict['neighbors']]
-        hists = [np.bincount(c, minlength=hist_n)[:hist_n] for c in counts]
-        neighbor_hists += np.vstack(hists)
-
-        if np.min(np.sum(neighbor_hists, axis=1)) > sample_threshold:
-            break
-
-    cum_sum = np.cumsum(neighbor_hists.T, axis=0)
-    neighbor_limits = np.sum(cum_sum < (keep_ratio * cum_sum[hist_n - 1, :]), axis=0)
-
+        cum_sum = np.cumsum(neighbor_hists.T, axis=0)
+        neighbor_limits = np.sum(cum_sum < (keep_ratio * cum_sum[hist_n - 1, :]), axis=0)
+    except Exception as e:
+        print(f'Warning: fail to calibrate neighbors due to {e}, use default neighbor limits.')
+        neighbor_limits = [32] * num_stages
+        
     return neighbor_limits
 
 

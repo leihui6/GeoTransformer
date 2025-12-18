@@ -18,5 +18,7 @@ def grid_subsample(points, lengths, voxel_size):
         s_points (Tensor): stacked subsampled points (M, 3)
         s_lengths (Tensor): numbers of subsampled points in the batch. (B,)
     """
+    print (f"Grid subsampling with voxel size: {voxel_size}")
+    print (f"Input points shape: {points.shape}, lengths: {lengths}")
     s_points, s_lengths = ext_module.grid_subsampling(points, lengths, voxel_size)
     return s_points, s_lengths

@@ -1,5 +1,5 @@
 from setuptools import setup
-from torch.utils.cpp_extension import BuildExtension, CUDAExtension
+from torch.utils.cpp_extension import BuildExtension, CUDAExtension, CppExtension
 
 
 setup(
@@ -18,5 +18,10 @@ setup(
             ],
         ),
     ],
-    cmdclass={'build_ext': BuildExtension},
+    cmdclass={
+        'build_ext': BuildExtension.with_options(
+            use_ninja=False,
+            verbose=True,
+        )
+    },
 )

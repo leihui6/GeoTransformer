@@ -25,13 +25,14 @@ from geotransformer.utils.pointcloud import apply_transform, get_transform_from_
 WORKING_DIR = osp.dirname(osp.realpath(__file__))
 ROOT_DIR = osp.dirname(osp.dirname(WORKING_DIR))
 
-TARGET_POINT_CLOUD = '/home/xchu/Downloads/ltloc-results/simulated_pc/shifted_cylinder/measured_cloud_shifted_cylinder.pcd'  # 更新为真实 target PCD
+TARGET_POINT_CLOUD = r'D:\onedrive\Beiren-12.25-6.25\.txt'  # 更新为真实 target PCD
 SOURCE_POINT_CLOUD = None  # 若已有 source PCD，可在此填写路径；留空则由目标生成
 INITIAL_POSE = (0.2, 0.8, 0.5, 0.1, 0.1, 2.0)  # (tx, ty, tz, roll, pitch, yaw)
 POSE_IN_RADIANS = False  # 若 INITIAL_POSE 中角度已是弧度，则改为 True
 FORCE_GT_IDENTITY = True  # True: 评价时将 GT 视为单位阵
 
 USE_GPU = True  # True：若可用则使用 GPU；False：始终使用 CPU
+# SNAPSHOT_PATH = osp.join(ROOT_DIR, 'weights', 'geotransformer-kitti.pth.tar')
 SNAPSHOT_PATH = osp.join(ROOT_DIR, 'weights', 'geotransformer-kitti.pth.tar')
 SAMPLE_THRESHOLD = 1
 KEEP_RATIO = 0.8
@@ -66,6 +67,8 @@ def load_point_cloud(path):
     ext = osp.splitext(path)[1].lower()
     if ext == '.npy':
         points = np.load(path)
+    elif ext == '.txt':
+        points = np.loadtxt(path)[:, :3]
     elif ext in ['.pcd', '.ply', '.xyz']:
         import open3d as o3d
 
@@ -149,6 +152,7 @@ def prepare_batch(ref_points, src_points, transform, cfg, neighbor_limits):
         neighbor_limits,
         precompute_data=True,
     )
+    print(f"Prepared batch keys: {list(collated.keys())}")
     return collated
 
 
@@ -176,9 +180,11 @@ def main():
         raise RuntimeError('Snapshot does not contain a "model" key.')
     model.load_state_dict(state_dict['model'], strict=True)
     model.eval()
+    print(f'Model loaded from {SNAPSHOT_PATH}.')
 
     # Load target point cloud.
     ref_points = load_point_cloud(TARGET_POINT_CLOUD)
+    print(f'Target point cloud loaded from {TARGET_POINT_CLOUD}, num points: {ref_points.shape[0]}.')
 
     applied_pose = None
     if SOURCE_POINT_CLOUD is not None:
@@ -188,6 +194,7 @@ def main():
     else:
         applied_pose = pose_to_transform(INITIAL_POSE, radians=POSE_IN_RADIANS)
         src_points = apply_transform(ref_points.copy(), applied_pose)
+    print (f"src_points shape: {src_points.shape}")
 
     if FORCE_GT_IDENTITY:
         transform_gt = np.eye(4, dtype=np.float32)
@@ -195,8 +202,11 @@ def main():
         transform_gt = inverse_transform(applied_pose)
     else:
         transform_gt = pose_to_transform(INITIAL_POSE, radians=POSE_IN_RADIANS) if INITIAL_POSE is not None else np.eye(4, dtype=np.float32)
+    print (f"transform_gt: {transform_gt}")
 
     dataset = SinglePairDataset(ref_points, src_points, transform_gt)
+    print(f"dataset prepared with {len(dataset)} sample pair(s).")
+
     neighbor_limits = calibrate_neighbors_stack_mode(
         dataset,
         registration_collate_fn_stack_mode,
@@ -206,6 +216,7 @@ def main():
         keep_ratio=KEEP_RATIO,
         sample_threshold=SAMPLE_THRESHOLD,
     )
+    print(f'Neighbor limits calibrated: {neighbor_limits}')
 
     batch = prepare_batch(ref_points, src_points, transform_gt, cfg, neighbor_limits)
     if device.type == 'cuda':
@@ -219,6 +230,8 @@ def main():
     runtime_ms = (time.perf_counter() - start_time) * 1000.0
 
     est_transform = output['estimated_transform']
+    print (f"est_transform shape: {est_transform.shape}, estimated_transform: {est_transform}")
+
     if est_transform.dim() == 2:
         est_transform = est_transform.unsqueeze(0)
 
