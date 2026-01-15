@@ -25,19 +25,18 @@ from geotransformer.utils.pointcloud import apply_transform, get_transform_from_
 WORKING_DIR = osp.dirname(osp.realpath(__file__))
 ROOT_DIR = osp.dirname(osp.dirname(WORKING_DIR))
 
-TARGET_POINT_CLOUD = r'D:\onedrive\Beiren-12.25-6.25\.txt'  # 更新为真实 target PCD
+TARGET_POINT_CLOUD = r'D:\onedrive\Beiren-12.25-6.25\焊接点云数据\变位器\变电器-A8030429 - tesselated.txt'  # 更新为真实 target PCD
 SOURCE_POINT_CLOUD = None  # 若已有 source PCD，可在此填写路径；留空则由目标生成
 INITIAL_POSE = (0.2, 0.8, 0.5, 0.1, 0.1, 2.0)  # (tx, ty, tz, roll, pitch, yaw)
 POSE_IN_RADIANS = False  # 若 INITIAL_POSE 中角度已是弧度，则改为 True
-FORCE_GT_IDENTITY = True  # True: 评价时将 GT 视为单位阵
+FORCE_GT_IDENTITY = False  # True: 评价时将 GT 视为单位阵
 
 USE_GPU = True  # True：若可用则使用 GPU；False：始终使用 CPU
-# SNAPSHOT_PATH = osp.join(ROOT_DIR, 'weights', 'geotransformer-kitti.pth.tar')
 SNAPSHOT_PATH = osp.join(ROOT_DIR, 'weights', 'geotransformer-kitti.pth.tar')
 SAMPLE_THRESHOLD = 1
 KEEP_RATIO = 0.8
 INLIER_THRESHOLD = 0.2  # meters
-RRE_THRESHOLD_DEG = 5.0  # degrees
+RRE_THRESHOLD_DEG = 2.0  # degrees
 RTE_THRESHOLD_M = 0.2  # meters
 RESULTS_TXT = osp.join(WORKING_DIR, 'custom_infer_results.txt')
 # ----------------------------------------------------------------------------- #
