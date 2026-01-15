@@ -15,7 +15,8 @@ _C.seed = 7351
 # dirs
 _C.working_dir = osp.dirname(osp.realpath(__file__))
 # _C.root_dir = osp.dirname(osp.dirname(_C.working_dir))
-_C.root_dir = r"E:\workspace\PCAlignmentDataGen\registration_dataset"
+# _C.root_dir = r"E:\workspace\PCAlignmentDataGen\registration_dataset"
+_C.root_dir = r"/home/robot/桌面/leihui_workspace/myGeoTrans/GeoTransformer-main"
 _C.exp_name = osp.basename(_C.working_dir)
 _C.output_dir = osp.join(_C.root_dir, 'output', _C.exp_name)
 _C.snapshot_dir = osp.join(_C.output_dir, 'snapshots')
@@ -41,7 +42,7 @@ _C.train.batch_size = 1
 _C.train.num_workers = 8
 _C.train.point_limit = 30000
 _C.train.use_augmentation = True
-_C.train.augmentation_noise = 0.005
+_C.train.augmentation_noise = 0.002
 _C.train.augmentation_rotation = 1.0
 
 # test data

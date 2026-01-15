@@ -2,7 +2,7 @@ import os.path as osp
 import pickle
 import random
 from typing import Dict
-
+import os
 import numpy as np
 import torch
 import torch.utils.data
@@ -12,6 +12,17 @@ from geotransformer.utils.pointcloud import (
     random_sample_rotation_v2,
     get_transform_from_rotation_translation,
 )
+
+from geotransformer.transforms.functional import (
+    normalize_points,
+    # random_jitter_points,
+    # random_shuffle_points,
+    # random_sample_points,
+    # random_crop_point_cloud_with_plane,
+    # random_sample_viewpoint,
+    # random_crop_point_cloud_with_point,
+)
+
 from geotransformer.utils.registration import get_correspondences
 
 
@@ -22,7 +33,7 @@ class WeldSeamDataset(torch.utils.data.Dataset):
         subset,
         point_limit=None,
         use_augmentation=False,
-        augmentation_noise=0.005,
+        augmentation_noise=0.003,
         augmentation_rotation=1,
         # overlap_threshold=None,
         # return_corr_indices=False,
@@ -102,21 +113,24 @@ class WeldSeamDataset(torch.utils.data.Dataset):
         src_points = self._crop_point_cloud(metadata['src'])
         ref_points = self._crop_point_cloud(metadata['ref'])
 
+        # src_points = normalize_points(src_points)
+        # ref_points = normalize_points(ref_points)
+
         # augmentation
         if self.use_augmentation:
             ref_points, src_points, rotation, translation = self._augment_point_cloud(
                 ref_points, src_points, rotation, translation
             )
 
-        if self.add_rotate:
-            ref_rotation = random_sample_rotation_v2()
-            ref_points = np.matmul(ref_points, ref_rotation.T)
-            rotation = np.matmul(ref_rotation, rotation)
-            translation = np.matmul(ref_rotation, translation)
+        # if self.add_rotate:
+        #     ref_rotation = random_sample_rotation_v2()
+        #     ref_points = np.matmul(ref_points, ref_rotation.T)
+        #     rotation = np.matmul(ref_rotation, rotation)
+        #     translation = np.matmul(ref_rotation, translation)
 
-            src_rotation = random_sample_rotation_v2()
-            src_points = np.matmul(src_points, src_rotation.T)
-            rotation = np.matmul(rotation, src_rotation.T)
+        #     src_rotation = random_sample_rotation_v2()
+        #     src_points = np.matmul(src_points, src_rotation.T)
+        #     rotation = np.matmul(rotation, src_rotation.T)
 
         transform = get_transform_from_rotation_translation(rotation, translation)
 
@@ -131,4 +145,10 @@ class WeldSeamDataset(torch.utils.data.Dataset):
         data_dict['src_feats'] = np.ones((src_points.shape[0], 1), dtype=np.float32)
         data_dict['transform'] = transform.astype(np.float32)
 
+        # Debug save
+        os.makedirs('debug', exist_ok=True)
+        np.savetxt(osp.join('debug', f'ref_{index}.txt'), ref_points, fmt='%.6f')
+        np.savetxt(osp.join('debug', f'src_{index}.txt'), src_points, fmt='%.6f')
+        np.savetxt(osp.join('debug', f'transform_{index}.txt'), transform, fmt='%.6f')
+        exit()
         return data_dict
