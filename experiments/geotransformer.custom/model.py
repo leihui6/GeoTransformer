@@ -210,6 +210,109 @@ class GeoTransformer(nn.Module):
             output_dict['estimated_transform'] = estimated_transform
 
         return output_dict
+    
+    @torch.no_grad()
+    def forward_inference(self, data_dict):
+        output_dict = {}
+
+        feats = data_dict['features']
+        ref_length_c = data_dict['lengths'][-1][0].item()
+        ref_length_f = data_dict['lengths'][1][0].item()
+        ref_length = data_dict['lengths'][0][0].item()
+
+        points_c = data_dict['points'][-1]
+        points_f = data_dict['points'][1]
+        points = data_dict['points'][0]
+
+        ref_points_c = points_c[:ref_length_c]
+        src_points_c = points_c[ref_length_c:]
+        ref_points_f = points_f[:ref_length_f]
+        src_points_f = points_f[ref_length_f:]
+
+        # 1. point → node partition
+        _, ref_node_masks, ref_node_knn_indices, ref_node_knn_masks = point_to_node_partition(
+            ref_points_f, ref_points_c, self.num_points_in_patch
+        )
+        _, src_node_masks, src_node_knn_indices, src_node_knn_masks = point_to_node_partition(
+            src_points_f, src_points_c, self.num_points_in_patch
+        )
+
+        ref_padded_points_f = torch.cat([ref_points_f, torch.zeros_like(ref_points_f[:1])], dim=0)
+        src_padded_points_f = torch.cat([src_points_f, torch.zeros_like(src_points_f[:1])], dim=0)
+        ref_node_knn_points = index_select(ref_padded_points_f, ref_node_knn_indices, dim=0)
+        src_node_knn_points = index_select(src_padded_points_f, src_node_knn_indices, dim=0)
+
+        # 2. Backbone
+        feats_list = self.backbone(feats, data_dict)
+        feats_c = feats_list[-1]
+        feats_f = feats_list[0]
+
+        # 3. Transformer
+        ref_feats_c = feats_c[:ref_length_c]
+        src_feats_c = feats_c[ref_length_c:]
+
+        ref_feats_c, src_feats_c = self.transformer(
+            ref_points_c.unsqueeze(0),
+            src_points_c.unsqueeze(0),
+            ref_feats_c.unsqueeze(0),
+            src_feats_c.unsqueeze(0),
+        )
+
+        ref_feats_c = F.normalize(ref_feats_c.squeeze(0), dim=1)
+        src_feats_c = F.normalize(src_feats_c.squeeze(0), dim=1)
+
+        # 4. Coarse matching
+        ref_node_corr_indices, src_node_corr_indices, node_corr_scores = self.coarse_matching(
+            ref_feats_c, src_feats_c, ref_node_masks, src_node_masks
+        )
+
+        # 5. Gather KNN patches
+        ref_node_corr_knn_indices = ref_node_knn_indices[ref_node_corr_indices]
+        src_node_corr_knn_indices = src_node_knn_indices[src_node_corr_indices]
+
+        ref_node_corr_knn_masks = ref_node_knn_masks[ref_node_corr_indices]
+        src_node_corr_knn_masks = src_node_knn_masks[src_node_corr_indices]
+
+        ref_node_corr_knn_points = ref_node_knn_points[ref_node_corr_indices]
+        src_node_corr_knn_points = src_node_knn_points[src_node_corr_indices]
+
+        ref_feats_f = feats_f[:ref_length_f]
+        src_feats_f = feats_f[ref_length_f:]
+
+        ref_padded_feats_f = torch.cat([ref_feats_f, torch.zeros_like(ref_feats_f[:1])], dim=0)
+        src_padded_feats_f = torch.cat([src_feats_f, torch.zeros_like(src_feats_f[:1])], dim=0)
+
+        ref_node_corr_knn_feats = index_select(ref_padded_feats_f, ref_node_corr_knn_indices, dim=0)
+        src_node_corr_knn_feats = index_select(src_padded_feats_f, src_node_corr_knn_indices, dim=0)
+
+        # 6. Optimal transport
+        matching_scores = torch.einsum(
+            'bnd,bmd->bnm', ref_node_corr_knn_feats, src_node_corr_knn_feats
+        )
+        matching_scores = matching_scores / feats_f.shape[1] ** 0.5
+        matching_scores = self.optimal_transport(
+            matching_scores, ref_node_corr_knn_masks, src_node_corr_knn_masks
+        )
+
+        if not self.fine_matching.use_dustbin:
+            matching_scores = matching_scores[:, :-1, :-1]
+
+        # 7. Fine matching & registration
+        ref_corr_points, src_corr_points, corr_scores, estimated_transform = self.fine_matching(
+            ref_node_corr_knn_points,
+            src_node_corr_knn_points,
+            ref_node_corr_knn_masks,
+            src_node_corr_knn_masks,
+            matching_scores,
+            node_corr_scores,
+        )
+
+        output_dict['estimated_transform'] = estimated_transform
+        output_dict['ref_corr_points'] = ref_corr_points
+        output_dict['src_corr_points'] = src_corr_points
+        output_dict['corr_scores'] = corr_scores
+
+        return output_dict
 
 
 def create_model(config):

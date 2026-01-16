@@ -35,6 +35,8 @@ class EpochBasedTrainer(BaseTrainer):
             grad_acc_steps=grad_acc_steps,
         )
         self.max_epoch = max_epoch
+        # === DEBUG: disable SummaryBoard to check CPU memory leak ===
+        self.summary_board.update_from_result_dict = lambda *a, **k: None
 
     def before_train_step(self, epoch, iteration, data_dict) -> None:
         pass

@@ -24,7 +24,7 @@ def inject_default_parser(parser=None):
     parser.add_argument('--resume', action='store_true', help='resume training')
     parser.add_argument('--snapshot', default=None, help='load from snapshot')
     parser.add_argument('--epoch', type=int, default=None, help='load epoch')
-    parser.add_argument('--log_steps', type=int, default=10, help='logging steps')
+    parser.add_argument('--log_steps', type=int, default=30, help='logging steps')
     parser.add_argument('--local_rank', type=int, default=-1, help='local rank for ddp')
     return parser
 
