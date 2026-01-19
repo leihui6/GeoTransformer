@@ -229,6 +229,13 @@ class GeoTransformer(nn.Module):
         ref_points_f = points_f[:ref_length_f]
         src_points_f = points_f[ref_length_f:]
 
+        # print (data_dict.keys())
+        # print (data_dict)
+        # print (ref_points_c.shape, src_points_c.shape)
+        # print (ref_points_c[:5])
+        # print (src_points_c[:5])
+        # exit()
+        
         # 1. point → node partition
         _, ref_node_masks, ref_node_knn_indices, ref_node_knn_masks = point_to_node_partition(
             ref_points_f, ref_points_c, self.num_points_in_patch

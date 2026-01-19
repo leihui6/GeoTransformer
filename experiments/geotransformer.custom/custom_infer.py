@@ -1,3 +1,4 @@
+import os
 import os.path as osp
 import time
 from xml.parsers.expat import model
@@ -24,14 +25,14 @@ from geotransformer.utils.pointcloud import apply_transform, get_transform_from_
 WORKING_DIR = osp.dirname(osp.realpath(__file__))
 ROOT_DIR = osp.dirname(osp.dirname(WORKING_DIR))
 
-# SOURCE_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\src.txt'
-SOURCE_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\cloud_bin_0.txt'
-# TARGET_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\tgt.txt'
-TARGET_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\cloud_bin_1.txt'
+SOURCE_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\src.txt'
+# SOURCE_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\cloud_bin_0.txt'
+TARGET_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\tgt.txt'
+# TARGET_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\cloud_bin_1.txt'
 
 USE_GPU = True  # True：若可用则使用 GPU；False：始终使用 CPU
-SNAPSHOT_PATH = osp.join('./weights', 'geotransformer-3dmatch.pth.tar')
-RESULTS_TXT = osp.join(WORKING_DIR, 'custom_infer_results.txt')
+# SNAPSHOT_PATH = osp.join('./weights', 'geotransformer-3dmatch.pth.tar')
+SNAPSHOT_PATH = osp.join('./weights', 'epoch-8.pth.tar')
 # ----------------------------------------------------------------------------- #
 
 def downsample_points(points, num_samples):
@@ -66,7 +67,7 @@ def load_point_cloud(path):
         points = np.load(path)
     elif ext == '.txt':
         points = np.loadtxt(path)[:, :3]
-        points  = downsample_points(points, 10000) 
+        points  = downsample_points(points, 6000) 
     elif ext in ['.pcd', '.ply', '.xyz']:
         import open3d as o3d
         pcd = o3d.io.read_point_cloud(path)
@@ -88,32 +89,6 @@ def pose_to_transform(pose, radians=False):
     rotation = Rotation.from_euler('xyz', angles, degrees=not radians).as_matrix()
     transform = get_transform_from_rotation_translation(rotation, translation)
     return transform.astype(np.float32)
-
-
-def write_results_txt(path, est_transform, metrics):
-    transform_str = np.array2string(
-        est_transform,
-        formatter={'float_kind': lambda x: f'{x: .6f}'},
-        max_line_width=200,
-    )
-    with open(path, 'w') as f:
-        f.write('Custom inference results\n')
-        f.write(f'Target point cloud: {TARGET_POINT_CLOUD}\n')
-        f.write(f"Source point cloud: {SOURCE_POINT_CLOUD or 'generated from target'}\n")
-        f.write(f'GT identity enforced: {FORCE_GT_IDENTITY}\n\n')
-        f.write('Estimated transform (4x4, row-major):\n')
-        f.write(transform_str + '\n\n')
-        f.write('Metrics:\n')
-        f.write(f'  RRE (deg): {metrics["rre_deg"]:.6f}\n')
-        f.write(f'  RTE (m): {metrics["rte_m"]:.6f}\n')
-        f.write(f'  Registration Recall (<= {RRE_THRESHOLD_DEG} deg & <= {RTE_THRESHOLD_M} m): {metrics["rr"]:.6f}\n')
-        f.write(f'  Chamfer Distance (m): {metrics["chamfer"]:.6f}\n')
-        f.write(f'  RMSE (m, inliers <= {INLIER_THRESHOLD} m): {metrics["rmse"]:.6f}\n')
-        f.write(f'  Fitness (inlier ratio): {metrics["fitness"]:.6f}\n')
-        f.write(f'  Inlier Count: {metrics["inlier_count"]}\n')
-        f.write(f'  Runtime (ms): {metrics["runtime_ms"]:.3f}\n')
-        f.write('\n')
-
 
 def prepare_batch(ref_points, src_points, cfg, neighbor_limits):
     dataset = SinglePairDataset(ref_points, src_points)
@@ -144,6 +119,7 @@ def main():
     if 'model' not in state_dict:
         raise RuntimeError('Snapshot does not contain a "model" key.')
     model.load_state_dict(state_dict['model'], strict=True)
+    # torch.set_grad_enabled(False)
     model.eval()
     print(f'Model loaded from {SNAPSHOT_PATH}.')
 
@@ -161,8 +137,9 @@ def main():
         cfg.backbone.init_voxel_size,
         cfg.backbone.init_radius
     )
+    # neighbor_limits = np.array([77,31,38,26])  # custom setting for pc alignment
     print(f'Neighbor limits calibrated: {neighbor_limits}')
-
+    
     batch = prepare_batch(ref_points, src_points, cfg, neighbor_limits)
     if device.type == 'cuda':
         batch = to_cuda(batch)
@@ -191,13 +168,27 @@ def main():
     vis.add_geometry(src_t_pcd)
     vis.add_geometry(ref_pcd)
 
-    src_pcd = o3d.geometry.PointCloud()
-    src_pcd.points = o3d.utility.Vector3dVector(src_points)
-    src_pcd.paint_uniform_color([1, 0, 0]) # red is src_points
-    vis.add_geometry(src_pcd)
+    # src_pcd = o3d.geometry.PointCloud()
+    # src_pcd.points = o3d.utility.Vector3dVector(src_points)
+    # src_pcd.paint_uniform_color([1, 0, 0]) # red is src_points
+    # vis.add_geometry(src_pcd)
     vis.run()
     vis.destroy_window()
 
+def set_seed(seed=0):
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 if __name__ == '__main__':
+    # print (torch.backends.cuda.matmul.allow_tf32)
+    # print (torch.backends.cudnn.allow_tf32)
+    set_seed()
     main()

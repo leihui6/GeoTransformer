@@ -116,7 +116,8 @@ class IterBasedTrainer(BaseTrainer):
             data_dict = to_cuda(data_dict)
             self.before_val_step(self.inner_iteration, data_dict)
             timer.add_prepare_time()
-            output_dict, result_dict = self.val_step(self.inner_iteration, data_dict)
+            with torch.no_grad():
+                output_dict, result_dict = self.val_step(self.inner_iteration, data_dict)
             timer.add_process_time()
             self.after_val_step(self.inner_iteration, data_dict, output_dict, result_dict)
             result_dict = self.release_tensors(result_dict)
@@ -185,9 +186,10 @@ class IterBasedTrainer(BaseTrainer):
             # snapshot & validation
             if self.iteration % self.snapshot_steps == 0:
                 self.epoch = train_loader.last_epoch
-                self.save_snapshot(f'iter-{self.iteration}.pth.tar')
+                # self.save_snapshot(f'iter-{self.iteration}.pth.tar')
+                self.save_inference_checkpoint(f'infer_iter_{self.iteration}.pth.tar')
                 if not self.save_all_snapshots:
-                    last_snapshot = f'iter_{self.iteration - self.snapshot_steps}.pth.tar'
+                    last_snapshot = f'infer_iter_{self.iteration - self.snapshot_steps}.pth.tar'
                     if osp.exists(last_snapshot):
                         os.remove(last_snapshot)
                 self.inference()

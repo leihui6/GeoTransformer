@@ -145,7 +145,8 @@ class EpochBasedTrainer(BaseTrainer):
             data_dict = to_cuda(data_dict)
             self.before_val_step(self.epoch, self.inner_iteration, data_dict)
             timer.add_prepare_time()
-            output_dict, result_dict = self.val_step(self.epoch, self.inner_iteration, data_dict)
+            with torch.no_grad():
+                output_dict, result_dict = self.val_step(self.epoch, self.inner_iteration, data_dict)
             torch.cuda.synchronize()
             timer.add_process_time()
             self.after_val_step(self.epoch, self.inner_iteration, data_dict, output_dict, result_dict)

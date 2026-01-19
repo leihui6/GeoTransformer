@@ -136,6 +136,41 @@ class BaseTrainer(abc.ABC):
         torch.save(state_dict, snapshot_filename)
         self.logger.info('Snapshot saved to "{}"'.format(snapshot_filename))
 
+    def save_inference_checkpoint(self, filename):
+        """
+        Save a clean checkpoint for Python inference.
+        """
+        if self.local_rank != 0:
+            return
+
+        self.logger.info("Saving inference checkpoint (python-only)...")
+
+        # 1. 强制进入 eval 语义
+        self.model.eval()
+        # torch.set_grad_enabled(False)
+
+        model = self.model.module if hasattr(self.model, "module") else self.model
+
+        state = {
+            "model": model.state_dict(),
+            "epoch": self.epoch,
+        }
+
+        path = osp.join(self.snapshot_dir, filename)
+        torch.save(state, path)
+
+        self.logger.info(f"Inference checkpoint saved to {path}")
+    
+    # def load_inference_checkpoint(self, path):
+    #     ckpt = torch.load(path, map_location="cpu")
+
+    #     missing, unexpected = self.model.load_state_dict(
+    #         ckpt["model"], strict=True
+    #     )
+
+    #     self.model.eval()
+    #     torch.set_grad_enabled(False)
+    
     def load_snapshot(self, snapshot, fix_prefix=True):
         self.logger.info('Loading from "{}".'.format(snapshot))
         state_dict = torch.load(snapshot, map_location=torch.device('cpu'))
