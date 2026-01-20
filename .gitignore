@@ -9,3 +9,5 @@ weights/*
 pretrained
 data/Kitti/downsampled
 data/ModelNet/*.pkl
+*.txt
+*.pkl

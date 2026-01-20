@@ -248,7 +248,7 @@ class GeoTransformer(nn.Module):
         src_padded_points_f = torch.cat([src_points_f, torch.zeros_like(src_points_f[:1])], dim=0)
         ref_node_knn_points = index_select(ref_padded_points_f, ref_node_knn_indices, dim=0)
         src_node_knn_points = index_select(src_padded_points_f, src_node_knn_indices, dim=0)
-
+        
         # 2. Backbone
         feats_list = self.backbone(feats, data_dict)
         feats_c = feats_list[-1]

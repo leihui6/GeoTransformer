@@ -188,7 +188,7 @@ def registration_collate_fn_stack_mode(
             collated_dict['points'] = points
             collated_dict['lengths'] = lengths
         collated_dict['batch_size'] = batch_size
-        print (collated_dict.keys())
+        # print (collated_dict.keys())
     except Exception as e:
         print(f"Error in registration_collate_fn_stack_mode: {e}")
         raise e

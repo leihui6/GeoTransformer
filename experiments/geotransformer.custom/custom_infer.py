@@ -33,6 +33,8 @@ TARGET_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\tgt.txt'
 USE_GPU = True  # True：若可用则使用 GPU；False：始终使用 CPU
 # SNAPSHOT_PATH = osp.join('./weights', 'geotransformer-3dmatch.pth.tar')
 SNAPSHOT_PATH = osp.join('./weights', 'epoch-8.pth.tar')
+
+NEIGHBORSFILE = osp.join(WORKING_DIR, 'neighbor_limits.txt')
 # ----------------------------------------------------------------------------- #
 
 def downsample_points(points, num_samples):
@@ -103,7 +105,6 @@ def prepare_batch(ref_points, src_points, cfg, neighbor_limits):
     print(f"Prepared batch keys: {list(collated.keys())}")
     return collated
 
-
 def main():
     cfg = make_cfg()
     # Load model and weights.
@@ -115,7 +116,7 @@ def main():
         device = torch.device('cpu')
 
     model = create_model(cfg).to(device)
-    state_dict = torch.load(SNAPSHOT_PATH, map_location='cpu')
+    state_dict = torch.load(SNAPSHOT_PATH, map_location='cpu', weights_only=True)
     if 'model' not in state_dict:
         raise RuntimeError('Snapshot does not contain a "model" key.')
     model.load_state_dict(state_dict['model'], strict=True)
@@ -130,14 +131,19 @@ def main():
     dataset = SinglePairDataset(ref_points, src_points)
     print(f"dataset prepared with {len(dataset)} sample pair(s).")
 
-    neighbor_limits = calibrate_neighbors_stack_mode(
-        dataset,
-        registration_collate_fn_stack_mode,
-        cfg.backbone.num_stages,
-        cfg.backbone.init_voxel_size,
-        cfg.backbone.init_radius
-    )
-    # neighbor_limits = np.array([77,31,38,26])  # custom setting for pc alignment
+    if NEIGHBORSFILE and osp.exists(NEIGHBORSFILE):
+        neighbor_limits = np.loadtxt(NEIGHBORSFILE, dtype=np.int64)
+        print(f'Neighbor limits loaded from {NEIGHBORSFILE}: {neighbor_limits}')
+    else:
+        neighbor_limits = calibrate_neighbors_stack_mode(
+            dataset,
+            registration_collate_fn_stack_mode,
+            cfg.backbone.num_stages,
+            cfg.backbone.init_voxel_size,
+            cfg.backbone.init_radius
+        )
+        np.savetxt(NEIGHBORSFILE, neighbor_limits, fmt='%d')
+        print(f'Neighbor limits saved to {NEIGHBORSFILE}.')
     print(f'Neighbor limits calibrated: {neighbor_limits}')
     
     batch = prepare_batch(ref_points, src_points, cfg, neighbor_limits)
