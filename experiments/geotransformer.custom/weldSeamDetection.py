@@ -105,9 +105,9 @@ class WeldSeamDataset(torch.utils.data.Dataset):
         data_dict['transform'] = transform.astype(np.float32)
 
         # Debug save
-        os.makedirs('debug', exist_ok=True)
-        np.savetxt(osp.join('debug', f'ref_{index}.txt'), ref_points, fmt='%.6f')
-        np.savetxt(osp.join('debug', f'src_{index}.txt'), src_points, fmt='%.6f')
-        np.savetxt(osp.join('debug', f'transform_{index}.txt'), transform, fmt='%.6f')
-        exit()
+        # os.makedirs('debug', exist_ok=True)
+        # np.savetxt(osp.join('debug', f'ref_{index}.txt'), ref_points, fmt='%.6f')
+        # np.savetxt(osp.join('debug', f'src_{index}.txt'), src_points, fmt='%.6f')
+        # np.savetxt(osp.join('debug', f'transform_{index}.txt'), transform, fmt='%.6f')
+        # exit()
         return data_dict

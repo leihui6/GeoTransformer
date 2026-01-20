@@ -128,7 +128,7 @@ class BaseTrainer(abc.ABC):
         torch.save(state_dict, filename)
         self.logger.info('Model saved to "{}"'.format(filename))
 
-        # save snapshot
+        # save snapshot, which contains optimizer and scheduler states
         snapshot_filename = osp.join(self.snapshot_dir, 'snapshot.pth.tar')
         state_dict['optimizer'] = self.optimizer.state_dict()
         if self.scheduler is not None:

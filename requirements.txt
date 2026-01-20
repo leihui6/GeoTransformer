@@ -11,3 +11,6 @@ ipdb
 tensorboard
 tensorboardX
 matplotlib
+onnx 
+onnxruntime 
+numpy

@@ -39,16 +39,16 @@ _C.data.dataset_root = osp.join(_C.root_dir, 'experiments', 'geotransformer.cust
 _C.train = edict()
 _C.train.batch_size = 1
 _C.train.num_workers = 8
-_C.train.point_limit = 10000
+_C.train.point_limit = 6000
 _C.train.use_augmentation = True
 _C.train.augmentation_noise = 0.005
 _C.train.augmentation_rotation = 1.0
 
 # test data
-# _C.test = edict()
-# _C.test.batch_size = 1
-# _C.test.num_workers = 8
-# _C.test.point_limit = None
+_C.test = edict()
+_C.test.batch_size = 1
+_C.test.num_workers = 8
+_C.test.point_limit = _C.train.point_limit
 
 # evaluation
 _C.eval = edict()

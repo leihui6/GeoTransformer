@@ -19,16 +19,16 @@ class Trainer(EpochBasedTrainer):
         start_time = time.time()
         train_loader, val_loader, neighbor_limits = train_valid_data_loader(cfg, self.distributed)
         loading_time = time.time() - start_time
-        message = 'Data loader created: {:.3f}s collapsed.'.format(loading_time)
+        message = 'Data loader created: {:.3f}s elapsed.'.format(loading_time)
         self.logger.info(message)
         message = 'Calibrate neighbors: {}.'.format(neighbor_limits)
         self.logger.info(message)
         self.register_loader(train_loader, val_loader)
 
         # model, optimizer, scheduler
-        model = create_model(cfg).cuda()
-        model = self.register_model(model)
-        optimizer = optim.Adam(model.parameters(), lr=cfg.optim.lr, weight_decay=cfg.optim.weight_decay)
+        self.model = create_model(cfg).cuda()
+        self.model = self.register_model(self.model)
+        optimizer = optim.Adam(self.model.parameters(), lr=cfg.optim.lr, weight_decay=cfg.optim.weight_decay)
         self.register_optimizer(optimizer)
         scheduler = optim.lr_scheduler.StepLR(optimizer, cfg.optim.lr_decay_steps, gamma=cfg.optim.lr_decay)
         self.register_scheduler(scheduler)
@@ -38,14 +38,14 @@ class Trainer(EpochBasedTrainer):
         self.evaluator = Evaluator(cfg).cuda()
 
     def train_step(self, epoch, iteration, data_dict):
-        output_dict = self.model(data_dict)
+        output_dict = self.model.forward_train(data_dict)
         loss_dict = self.loss_func(output_dict, data_dict)
         result_dict = self.evaluator(output_dict, data_dict)
         loss_dict.update(result_dict)
         return output_dict, loss_dict
 
     def val_step(self, epoch, iteration, data_dict):
-        output_dict = self.model(data_dict)
+        output_dict = self.model.forward(data_dict)
         loss_dict = self.loss_func(output_dict, data_dict)
         result_dict = self.evaluator(output_dict, data_dict)
         loss_dict.update(result_dict)
@@ -56,7 +56,6 @@ def main():
     cfg = make_cfg()
     trainer = Trainer(cfg)
     trainer.run()
-
 
 if __name__ == '__main__':
     main()

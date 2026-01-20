@@ -21,7 +21,7 @@ class EpochBasedTrainer(BaseTrainer):
         parser=None,
         cudnn_deterministic=True,
         autograd_anomaly_detection=False,
-        save_all_snapshots=True,
+        save_all_snapshots=False,
         run_grad_check=False,
         grad_acc_steps=1,
     ):
@@ -87,7 +87,11 @@ class EpochBasedTrainer(BaseTrainer):
         self.before_train_epoch(self.epoch)
         self.optimizer.zero_grad()
         total_iterations = len(self.train_loader)
-        for iteration, data_dict in enumerate(self.train_loader):
+        pbar = tqdm.tqdm(enumerate(self.train_loader),
+                         total=total_iterations,
+                            desc='Training Epoch {}'.format(self.epoch))
+        
+        for iteration, data_dict in pbar:
             self.inner_iteration = iteration + 1
             self.iteration += 1
             data_dict = to_cuda(data_dict)
@@ -107,9 +111,8 @@ class EpochBasedTrainer(BaseTrainer):
             self.summary_board.update_from_result_dict(result_dict)
             # logging
             if self.inner_iteration % self.log_steps == 0:
-                summary_dict = self.summary_board.summary()
                 message = get_log_string(
-                    result_dict=summary_dict,
+                    result_dict=self.summary_board.summary(),
                     epoch=self.epoch,
                     max_epoch=self.max_epoch,
                     iteration=self.inner_iteration,
@@ -118,7 +121,8 @@ class EpochBasedTrainer(BaseTrainer):
                     timer=self.timer,
                 )
                 self.logger.info(message)
-                self.write_event('train', summary_dict, self.iteration)
+                self.write_event('train', self.summary_board.summary(), self.iteration)
+            pbar.set_description(message)
             torch.cuda.empty_cache()
         self.after_train_epoch(self.epoch)
         message = get_log_string(self.summary_board.summary(), epoch=self.epoch, timer=self.timer)
@@ -128,10 +132,10 @@ class EpochBasedTrainer(BaseTrainer):
             self.scheduler.step()
         # snapshot
         self.save_snapshot(f'epoch-{self.epoch}.pth.tar')
-        if not self.save_all_snapshots:
-            last_snapshot = f'epoch-{self.epoch - 1}.pth.tar'
-            if osp.exists(last_snapshot):
-                os.remove(last_snapshot)
+        # if not self.save_all_snapshots:
+        #     last_snapshot = f'epoch-{self.epoch - 1}.pth.tar'
+        #     if osp.exists(last_snapshot):
+        #         os.remove(last_snapshot)
 
     def inference_epoch(self):
         self.set_eval_mode()
@@ -139,14 +143,15 @@ class EpochBasedTrainer(BaseTrainer):
         summary_board = SummaryBoard(adaptive=True)
         timer = Timer()
         total_iterations = len(self.val_loader)
-        pbar = tqdm.tqdm(enumerate(self.val_loader), total=total_iterations)
+        pbar = tqdm.tqdm(enumerate(self.val_loader), 
+                         total=total_iterations,
+                         desc='Validation')
         for iteration, data_dict in pbar:
             self.inner_iteration = iteration + 1
             data_dict = to_cuda(data_dict)
             self.before_val_step(self.epoch, self.inner_iteration, data_dict)
             timer.add_prepare_time()
-            with torch.no_grad():
-                output_dict, result_dict = self.val_step(self.epoch, self.inner_iteration, data_dict)
+            output_dict, result_dict = self.val_step(self.epoch, self.inner_iteration, data_dict)
             torch.cuda.synchronize()
             timer.add_process_time()
             self.after_val_step(self.epoch, self.inner_iteration, data_dict, output_dict, result_dict)

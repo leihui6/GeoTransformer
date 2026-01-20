@@ -18,6 +18,7 @@ from geotransformer.utils.data import (
 from geotransformer.utils.torch import to_cuda
 from geotransformer.modules.registration.metrics import isotropic_transform_error
 from geotransformer.utils.pointcloud import apply_transform, get_transform_from_rotation_translation, inverse_transform
+from geotransformer.utils.data import precompute_data_stack_mode
 
 # ----------------------------------------------------------------------------- #
 # Hard-coded configuration                                                      #
@@ -102,8 +103,79 @@ def prepare_batch(ref_points, src_points, cfg, neighbor_limits):
         neighbor_limits,
         precompute_data=True,
     )
-    print(f"Prepared batch keys: {list(collated.keys())}")
     return collated
+
+def make_onnx(onnx_path, model, batch):
+    import torch.onnx
+    torch.onnx.export(
+        model,              # model being run
+        (batch,),           # model input (or a tuple for multiple inputs)
+        onnx_path,          # where to save the model (can be a file or file-like object)
+        verbose=True,      # whether to print out a human-readable representation of the model
+        input_names = ['input'],   # the model's input names
+        output_names = ['output'], # the model's output names
+    )
+
+def build_infer_data_dict(ref_points, src_points, cfg, neighbor_limits, device=None):
+    """
+    ref_points/src_points: np.ndarray or torch.Tensor, (N,3) float32
+    returns: data_dict for KPConvFPN/GeoTransformer
+    NOTE: geometric precompute runs on CPU only, then moved to device.
+    """
+    if isinstance(ref_points, np.ndarray):
+        ref_points = torch.from_numpy(ref_points)
+    if isinstance(src_points, np.ndarray):
+        src_points = torch.from_numpy(src_points)
+
+    # default device for network compute
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # ---------------------------
+    # 1) CPU precompute inputs
+    # ---------------------------
+    ref_cpu = ref_points.detach().cpu().contiguous()
+    src_cpu = src_points.detach().cpu().contiguous()
+
+    points0 = torch.cat([ref_cpu, src_cpu], dim=0).contiguous()
+    lengths0 = torch.tensor(
+        [ref_cpu.shape[0], src_cpu.shape[0]],
+        dtype=torch.long,
+        device='cpu',
+    )
+
+    feats0 = torch.ones((points0.shape[0], 1), dtype=torch.float32, device='cpu')
+
+    # ---------------------------
+    # 2) CPU geometric pyramid
+    # ---------------------------
+    geo = precompute_data_stack_mode(
+        points=points0,
+        lengths=lengths0,
+        num_stages=cfg.backbone.num_stages,
+        voxel_size=cfg.backbone.init_voxel_size,
+        radius=cfg.backbone.init_radius,
+        neighbor_limits=neighbor_limits,
+    )
+
+    # ---------------------------
+    # 3) move to device
+    # ---------------------------
+    def move(x):
+        if isinstance(x, list):
+            return [t.to(device).contiguous() for t in x]
+        return x.to(device).contiguous()
+
+    data_dict = {
+        "features": feats0.to(device).contiguous(),
+        "points": move(geo["points"]),
+        "lengths": move(geo["lengths"]),
+        "neighbors": move(geo["neighbors"]),
+        "subsampling": move(geo["subsampling"]),
+        "upsampling": move(geo["upsampling"]),
+        "batch_size": 1,
+    }
+    return data_dict
 
 def main():
     cfg = make_cfg()
@@ -128,13 +200,13 @@ def main():
     ref_points = load_point_cloud(TARGET_POINT_CLOUD)
     src_points = load_point_cloud(SOURCE_POINT_CLOUD)
 
-    dataset = SinglePairDataset(ref_points, src_points)
-    print(f"dataset prepared with {len(dataset)} sample pair(s).")
 
     if NEIGHBORSFILE and osp.exists(NEIGHBORSFILE):
         neighbor_limits = np.loadtxt(NEIGHBORSFILE, dtype=np.int64)
         print(f'Neighbor limits loaded from {NEIGHBORSFILE}: {neighbor_limits}')
     else:
+        dataset = SinglePairDataset(ref_points, src_points)
+        print(f"dataset prepared with {len(dataset)} sample pair(s).")
         neighbor_limits = calibrate_neighbors_stack_mode(
             dataset,
             registration_collate_fn_stack_mode,
@@ -150,12 +222,13 @@ def main():
     if device.type == 'cuda':
         batch = to_cuda(batch)
 
+    data_dict = build_infer_data_dict(ref_points, src_points, cfg, neighbor_limits, device)
     start_time = time.perf_counter()
     model.eval()
     with torch.no_grad():
-        out = model.forward_inference(batch)
-        T_est = out["estimated_transform"]
-    print (f"est_transform shape: {T_est.shape}")
+        # T_est = model(batch)
+        T_est = model.forward_infer(data_dict)
+    print (f"est_transform shape: {T_est}")
     end_time = time.perf_counter()
 
     est_transform_np = T_est.squeeze(0).detach().cpu().numpy()
@@ -180,21 +253,9 @@ def main():
     # vis.add_geometry(src_pcd)
     vis.run()
     vis.destroy_window()
-
-def set_seed(seed=0):
-    import random
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cuda.matmul.allow_tf32 = False
-    torch.backends.cudnn.allow_tf32 = False
     
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    
+    make_onnx('geotransformer_custom.onnx', model, (batch,))
 
 if __name__ == '__main__':
-    # print (torch.backends.cuda.matmul.allow_tf32)
-    # print (torch.backends.cudnn.allow_tf32)
-    set_seed()
     main()
