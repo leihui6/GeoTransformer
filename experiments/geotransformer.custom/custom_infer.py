@@ -26,16 +26,19 @@ from geotransformer.utils.data import precompute_data_stack_mode
 WORKING_DIR = osp.dirname(osp.realpath(__file__))
 ROOT_DIR = osp.dirname(osp.dirname(WORKING_DIR))
 
-SOURCE_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\src.txt'
+# SOURCE_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\src.txt'
+SOURCE_POINT_CLOUD = r'./data/debug_src_cloud.txt'
 # SOURCE_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\cloud_bin_0.txt'
-TARGET_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\tgt.txt'
+# TARGET_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\tgt.txt'
+TARGET_POINT_CLOUD = r'./data/debug_tgt_cloud.txt'
 # TARGET_POINT_CLOUD = r'E:\workspace\PCAlignmentDataGen\cloud_bin_1.txt'
 
 USE_GPU = True  # True：若可用则使用 GPU；False：始终使用 CPU
 # SNAPSHOT_PATH = osp.join('./weights', 'geotransformer-3dmatch.pth.tar')
-SNAPSHOT_PATH = osp.join('./weights', 'epoch-8.pth.tar')
+# SNAPSHOT_PATH = osp.join('./weights', 'epoch-8.pth.tar')
+SNAPSHOT_PATH = osp.join('./weights', 'epoch-35.pth.tar')
 
-NEIGHBORSFILE = osp.join(WORKING_DIR, 'neighbor_limits.txt')
+NEIGHBORSFILE = osp.join(WORKING_DIR, 'T4_neighbor_limits.txt')
 # ----------------------------------------------------------------------------- #
 
 def downsample_points(points, num_samples):
@@ -177,6 +180,22 @@ def build_infer_data_dict(ref_points, src_points, cfg, neighbor_limits, device=N
     }
     return data_dict
 
+def unify_points(points: np.ndarray, k=0.50):
+    # must have normal, N*6
+    points_xyz = points[: , :3]
+    center = points_xyz.mean(0)
+    scaler = float(np.linalg.norm(points_xyz.max(0) - points_xyz.min(0)))
+    scaler = k / scaler
+    points_xyz = points_xyz * scaler
+    points_xyz = points_xyz - center
+    
+    return points_xyz, scaler, center
+
+def scale_points(points: np.ndarray, scaler = 5.0):
+    points_xyz = points[:, :3]
+    points_xyz = points_xyz * scaler
+    return points_xyz
+
 def main():
     cfg = make_cfg()
     # Load model and weights.
@@ -200,6 +219,15 @@ def main():
     ref_points = load_point_cloud(TARGET_POINT_CLOUD)
     src_points = load_point_cloud(SOURCE_POINT_CLOUD)
 
+    # ref_points, scaler, center = unify_points(ref_points, k=0.50)
+    # src_points, scaler, center = unify_points(src_points, k=0.50)
+    
+    ref_points = scale_points(ref_points, scaler=5.0)
+    src_points = scale_points(src_points, scaler=5.0)
+    
+    # np.savetxt('debug_ref_points.txt', ref_points, fmt='%.6f')
+    # np.savetxt('debug_src_points.txt', src_points, fmt='%.6f')
+    # exit()
     if NEIGHBORSFILE and osp.exists(NEIGHBORSFILE):
         neighbor_limits = np.loadtxt(NEIGHBORSFILE, dtype=np.int64)
         print(f'Neighbor limits loaded from {NEIGHBORSFILE}: {neighbor_limits}')
@@ -252,9 +280,7 @@ def main():
     # vis.add_geometry(src_pcd)
     vis.run()
     vis.destroy_window()
-    
-    
-    make_onnx('geotransformer_custom.onnx', model, (batch,))
+    # make_onnx('geotransformer_custom.onnx', model, (batch,))
 
 if __name__ == '__main__':
     main()

@@ -8,6 +8,7 @@ import mmap
 import numpy as np
 import torch
 import os.path as osp
+import open3d as o3d
 
 SHM_NAME = "PointCloudSHM"
 SHM_SIZE = 1024 * 1024 * 1024  # 1GB
@@ -17,7 +18,7 @@ from geotransformer.utils.data import (
     registration_collate_fn_stack_mode,
     calibrate_neighbors_stack_mode,
 )
-from custom_infer import build_infer_data_dict, SinglePairDataset
+from custom_infer import build_infer_data_dict, SinglePairDataset, downsample_points
 from model import create_model
 
 def make_neighbor_limits(NEIGHBORSFILE, ref_points, src_points, cfg):
@@ -39,28 +40,33 @@ def make_neighbor_limits(NEIGHBORSFILE, ref_points, src_points, cfg):
     print(f'Neighbor limits calibrated: {neighbor_limits}')
     return neighbor_limits
 
-def points_scale(points, scale = 3.0):
-    centroid = np.mean(points, axis=0)
-    points -= centroid
-    points /= scale
-    points += centroid
-    return points, scale, centroid
+def points_scale(src, ref, scale = 5.0):
+    src_scaled = src * scale
+    ref_scaled = ref * scale
+    return src_scaled, ref_scaled
 
-def recover_T_from_scaled(T_scaled, scale, centroid):
-    T_orig = np.eye(4)
-    R = T_scaled[:3, :3]
-    t = T_scaled[:3, 3]
+def recover_T_from_scaled(T_scaled, scale):
+    T_recovered = np.eye(4, dtype=np.float32)
+    T_recovered[:3, :3] = T_scaled[:3, :3]
+    T_recovered[:3, 3] = T_scaled[:3, 3] / scale
+    return T_recovered
 
-    I = np.eye(3)
-    t_orig = scale * t + (1.0 - scale) * (I - R) @ centroid
-
-    T_orig[:3, :3] = R
-    T_orig[:3, 3] = t_orig
-    return T_orig
+def show_pointcloud(src, ref, tsfm=None):
+    src_pcd = o3d.geometry.PointCloud()
+    ref_pcd = o3d.geometry.PointCloud()
+    src_pcd.points = o3d.utility.Vector3dVector(src)
+    if tsfm is not None:
+        src_pcd.transform(tsfm)
+    ref_pcd.points = o3d.utility.Vector3dVector(ref)
+    src_pcd.paint_uniform_color([0, 1, 0])  # 绿色
+    ref_pcd.paint_uniform_color([1, 0, 0])  # 红色
+    o3d.visualization.draw_geometries([src_pcd, ref_pcd], 
+                                      window_name="Point Clouds", 
+                                      width=800, height=600)
 
 if __name__ == "__main__":
     USE_GPU = True
-    SNAPSHOT_PATH = osp.join('./weights', 'epoch-8.pth.tar')
+    SNAPSHOT_PATH = osp.join('./weights', 'epoch-35.pth.tar')
     if USE_GPU and torch.cuda.is_available():
         device = torch.device('cuda')
     else:
@@ -87,8 +93,8 @@ if __name__ == "__main__":
     conn, _ = sock.accept()
     print("[Python] Connected")
 
-    src_points_np = None
-    ref_points_np = None
+    o_src_points_np = None
+    o_ref_points_np = None
 
     while True:
         print ("[Python] Waiting for command...")
@@ -115,27 +121,34 @@ if __name__ == "__main__":
         print(f"[Python] RUN received, points = {num_points}")
 
         if msg["data_name"] == 'src':
-            src_points_np = np.ndarray(
-                shape=(num_points, 3),
-                dtype=np.float32,
-                buffer=mm
+            o_src_points_np = (
+                np.frombuffer(mm, dtype=np.float32, count=num_points * 3)
+                .reshape(num_points, 3)
+                .copy()
             )
-            print (f"[Python] Read {src_points_np.shape[0]} points from shared memory")
+            print (f"[Python] Read {o_src_points_np.shape[0]} points from shared memory")
         elif msg["data_name"] == 'tgt':
-            ref_points_np = np.ndarray(
-                shape=(num_points, 3),
-                dtype=np.float32,
-                buffer=mm
+            o_ref_points_np = (
+                np.frombuffer(mm, dtype=np.float32, count=num_points * 3)
+                .reshape(num_points, 3)
+                .copy()
             )
-            print (f"[Python] Read {ref_points_np.shape[0]} points from shared memory")
+            print (f"[Python] Read {o_ref_points_np.shape[0]} points from shared memory")
 
-        if src_points_np is not None and ref_points_np is not None:
+        if o_src_points_np is not None and o_ref_points_np is not None:
             print ("[Python] Both point clouds received, performing inference...")
-            src_points_np, scale, centroid = points_scale(src_points_np)
-            ref_points_np, _, _ = points_scale(ref_points_np)
+            show_pointcloud(o_src_points_np, o_ref_points_np)
+            np.savetxt('debug_o_ref_points.txt', o_ref_points_np, fmt='%.6f')
+            np.savetxt('debug_o_src_points.txt', o_src_points_np, fmt='%.6f')
+            exit()
+            # 放大点云
+            src_points_np, ref_points_np = points_scale(o_src_points_np, o_ref_points_np, scale = 5.0)
+            # 点云采样
+            src_points_np = downsample_points(src_points_np, 6000)
+            ref_points_np = downsample_points(ref_points_np, 6000)
             
             neighbor_limits = make_neighbor_limits(
-                NEIGHBORSFILE="neighbor_limits.txt",
+                NEIGHBORSFILE="T4_neighbor_limits.txt",
                 ref_points=ref_points_np,
                 src_points=src_points_np,
                 cfg=cfg
@@ -151,7 +164,9 @@ if __name__ == "__main__":
             with torch.no_grad():
                 T_est = model.forward_infer(data_dict)
             print ("[Python] Model inference done.")
-            T_est = recover_T_from_scaled(T_est.squeeze(0).detach().cpu().numpy(), scale, centroid)
+            T_est = recover_T_from_scaled(T_est.squeeze(0).detach().cpu().numpy(), scale=5.0)
+            np.set_printoptions(precision=6, suppress=True)
+            print (f"[Python] Estimated Transformation:\n{T_est}")
             
             # === 写回共享内存 ===
             tsfm_np = np.ndarray(
@@ -161,9 +176,15 @@ if __name__ == "__main__":
             )
             np.copyto(tsfm_np, T_est.reshape(-1))
             print(f"[Python] Registration result written to shared memory")
-            src_points_np = None
-            ref_points_np = None
-            # === 回执（关键）===
+            
+            # === 回执 ===
             reply = "DONE"
             conn.send(json.dumps(reply).encode("utf-8"))
             print("[Python] DONE sent")
+            
+            
+            # 用open3d 可视化出来
+            show_pointcloud(o_src_points_np, o_ref_points_np, tsfm=T_est)
+            
+            o_src_points_np = None
+            o_ref_points_np = None
