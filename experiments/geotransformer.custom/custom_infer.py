@@ -200,7 +200,6 @@ def main():
     ref_points = load_point_cloud(TARGET_POINT_CLOUD)
     src_points = load_point_cloud(SOURCE_POINT_CLOUD)
 
-
     if NEIGHBORSFILE and osp.exists(NEIGHBORSFILE):
         neighbor_limits = np.loadtxt(NEIGHBORSFILE, dtype=np.int64)
         print(f'Neighbor limits loaded from {NEIGHBORSFILE}: {neighbor_limits}')
