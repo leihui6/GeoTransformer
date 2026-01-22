@@ -51,7 +51,7 @@ def recover_T_from_scaled(T_scaled, scale):
     T_recovered[:3, 3] = T_scaled[:3, 3] / scale
     return T_recovered
 
-def show_pointcloud(src, ref, tsfm=None):
+def show_pointcloud(src, ref, tsfm=None, title="Point Clouds"):
     src_pcd = o3d.geometry.PointCloud()
     ref_pcd = o3d.geometry.PointCloud()
     src_pcd.points = o3d.utility.Vector3dVector(src)
@@ -61,7 +61,7 @@ def show_pointcloud(src, ref, tsfm=None):
     src_pcd.paint_uniform_color([0, 1, 0])  # 绿色
     ref_pcd.paint_uniform_color([1, 0, 0])  # 红色
     o3d.visualization.draw_geometries([src_pcd, ref_pcd], 
-                                      window_name="Point Clouds", 
+                                      window_name=title, 
                                       width=800, height=600)
 
 if __name__ == "__main__":
@@ -122,25 +122,30 @@ if __name__ == "__main__":
 
         if msg["data_name"] == 'src':
             o_src_points_np = (
-                np.frombuffer(mm, dtype=np.float32, count=num_points * 3)
+                np.frombuffer(mm, dtype=np.float32, 
+                              count=num_points * 3, offset=0)
                 .reshape(num_points, 3)
                 .copy()
             )
+            # show_pointcloud(o_src_points_np, np.array([[0,0,0]]))
+            # print (id(o_src_points_np))
             print (f"[Python] Read {o_src_points_np.shape[0]} points from shared memory")
         elif msg["data_name"] == 'tgt':
             o_ref_points_np = (
-                np.frombuffer(mm, dtype=np.float32, count=num_points * 3)
+                np.frombuffer(mm, dtype=np.float32, 
+                              count=num_points * 3, offset=o_src_points_np.nbytes)
                 .reshape(num_points, 3)
                 .copy()
             )
+            # print (id(o_ref_points_np))
             print (f"[Python] Read {o_ref_points_np.shape[0]} points from shared memory")
 
         if o_src_points_np is not None and o_ref_points_np is not None:
             print ("[Python] Both point clouds received, performing inference...")
-            show_pointcloud(o_src_points_np, o_ref_points_np)
-            np.savetxt('debug_o_ref_points.txt', o_ref_points_np, fmt='%.6f')
-            np.savetxt('debug_o_src_points.txt', o_src_points_np, fmt='%.6f')
-            exit()
+            # show_pointcloud(o_src_points_np, o_ref_points_np, title="Received Point Clouds")
+            # np.savetxt('debug_o_ref_points.txt', o_ref_points_np, fmt='%.6f')
+            # np.savetxt('debug_o_src_points.txt', o_src_points_np, fmt='%.6f')
+            # exit()
             # 放大点云
             src_points_np, ref_points_np = points_scale(o_src_points_np, o_ref_points_np, scale = 5.0)
             # 点云采样
@@ -173,6 +178,7 @@ if __name__ == "__main__":
                 shape=(16,),
                 dtype=np.float32,
                 buffer=mm,
+                offset=o_src_points_np.nbytes + o_ref_points_np.nbytes
             )
             np.copyto(tsfm_np, T_est.reshape(-1))
             print(f"[Python] Registration result written to shared memory")
@@ -182,9 +188,8 @@ if __name__ == "__main__":
             conn.send(json.dumps(reply).encode("utf-8"))
             print("[Python] DONE sent")
             
-            
             # 用open3d 可视化出来
-            show_pointcloud(o_src_points_np, o_ref_points_np, tsfm=T_est)
+            show_pointcloud(o_src_points_np, o_ref_points_np, tsfm=T_est, title="Aligned Point Clouds")
             
             o_src_points_np = None
             o_ref_points_np = None
