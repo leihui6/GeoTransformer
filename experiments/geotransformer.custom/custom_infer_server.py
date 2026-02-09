@@ -87,7 +87,7 @@ if __name__ == "__main__":
     )
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 9000))
+    sock.bind(("127.0.0.1", 60000))
     sock.listen(1)
     print("[Python] Waiting for C++...")
     conn, _ = sock.accept()

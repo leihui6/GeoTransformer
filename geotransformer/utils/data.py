@@ -19,6 +19,9 @@ def precompute_data_stack_mode(points, lengths, num_stages, voxel_size, radius, 
     subsampling_list = []
     upsampling_list = []
 
+    print (f"{points.shape}, {lengths}")
+
+
     # grid subsampling
     for i in range(num_stages):
         if i > 0:
@@ -26,7 +29,8 @@ def precompute_data_stack_mode(points, lengths, num_stages, voxel_size, radius, 
         points_list.append(points)
         lengths_list.append(lengths)
         voxel_size *= 2
-
+    print (f"Stage {i}, {points.shape}, {lengths_list}")
+    # exit()    
     # radius search
     for i in range(num_stages):
         cur_points = points_list[i]
@@ -67,7 +71,8 @@ def precompute_data_stack_mode(points, lengths, num_stages, voxel_size, radius, 
             upsampling_list.append(upsampling)
 
         radius *= 2
-
+    print (subsampling_list)
+    # exit()
     return {
         'points': points_list,
         'lengths': lengths_list,
@@ -106,7 +111,7 @@ def single_collate_fn_stack_mode(
             if key not in collated_dict:
                 collated_dict[key] = []
             collated_dict[key].append(value)
-
+    print (collated_dict.keys())
     # handle special keys: feats, points, normals
     if 'normals' in collated_dict:
         normals = torch.cat(collated_dict.pop('normals'), dim=0)
@@ -114,6 +119,8 @@ def single_collate_fn_stack_mode(
         normals = None
     feats = torch.cat(collated_dict.pop('feats'), dim=0)
     points_list = collated_dict.pop('points')
+    print (points_list)
+    # exit()
     lengths = torch.LongTensor([points.shape[0] for points in points_list])
     points = torch.cat(points_list, dim=0)
 
@@ -166,7 +173,8 @@ def registration_collate_fn_stack_mode(
                 if key not in collated_dict:
                     collated_dict[key] = []
                 collated_dict[key].append(value)
-
+        print (collated_dict.keys())
+        # exit()
         # handle special keys: [ref_feats, src_feats] -> feats, [ref_points, src_points] -> points, lengths
         feats = torch.cat(collated_dict.pop('ref_feats') + collated_dict.pop('src_feats'), dim=0)
         points_list = collated_dict.pop('ref_points') + collated_dict.pop('src_points')

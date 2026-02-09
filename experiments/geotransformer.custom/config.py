@@ -115,7 +115,7 @@ _C.geotransformer.reduction_a = 'max'
 
 # model - Fine Matching
 _C.fine_matching = edict()
-_C.fine_matching.topk = 3
+_C.fine_matching.topk = 5
 _C.fine_matching.acceptance_radius = 0.1
 _C.fine_matching.mutual = True
 _C.fine_matching.confidence_threshold = 0.05
