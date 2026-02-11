@@ -387,8 +387,8 @@ def get_node_overlap_ratios(
     unique_src_corr_indices = torch.unique(corr_indices[:, 1])
     ref_overlap_masks = torch.zeros(ref_points.shape[0] + 1).cuda()  # pad for following indexing
     src_overlap_masks = torch.zeros(src_points.shape[0] + 1).cuda()  # pad for following indexing
-    ref_overlap_masks.index_fill_(0, unique_ref_corr_indices, 1.0)
-    src_overlap_masks.index_fill_(0, unique_src_corr_indices, 1.0)
+    ref_overlap_masks.index_fill_(0, unique_ref_corr_indices, torch.tensor(1.0, device=ref_overlap_masks.device))
+    src_overlap_masks.index_fill_(0, unique_src_corr_indices, torch.tensor(1.0, device=src_overlap_masks.device))
     ref_knn_overlap_masks = index_select(ref_overlap_masks, ref_knn_indices, dim=0)  # (N', K)
     src_knn_overlap_masks = index_select(src_overlap_masks, src_knn_indices, dim=0)  # (M', K)
     ref_knn_overlap_ratios = (ref_knn_overlap_masks * ref_knn_masks).sum(1) / (ref_knn_masks.sum(1) + eps)

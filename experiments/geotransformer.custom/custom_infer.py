@@ -103,17 +103,7 @@ def prepare_batch(ref_points, src_points, cfg, neighbor_limits):
     return collated
 
 
-def make_onnx(onnx_path, model, batch):
-    import torch.onnx
 
-    torch.onnx.export(
-        model,  # model being run
-        (batch,),  # model input (or a tuple for multiple inputs)
-        onnx_path,  # where to save the model (can be a file or file-like object)
-        verbose=True,  # whether to print out a human-readable representation of the model
-        input_names=["input"],  # the model's input names
-        output_names=["output"],  # the model's output names
-    )
 
 
 def build_infer_data_dict(ref_points, src_points, cfg, neighbor_limits, device=None):
@@ -195,6 +185,35 @@ def scale_points(points: np.ndarray, scaler=5.0):
     points_xyz = points_xyz * scaler
     return points_xyz
 
+def to_torchscript(model, *example_inputs):
+    model.eval()
+    model.cuda() if torch.cuda.is_available() else model.cpu()
+    scripted = torch.jit.script(model)
+    scripted.save("model.pt")
+
+def make_onnx(onnx_path, model, example_input):
+    model.eval()
+    torch.onnx.export(
+        model,
+        example_input,
+        onnx_path,
+        export_params=True,
+        opset_version=17,
+        do_constant_folding=True,
+        input_names=[
+            "features",
+            "length_coarse",
+            "length_fine",
+            "ref_points",
+            "src_points",
+            "points",
+            "neighbors",
+            "subsampling",
+            "upsampling"
+        ],
+        output_names=["output"],
+    )
+    print(f"Model exported to {onnx_path}.")
 
 def main():
     cfg = make_cfg()
@@ -250,11 +269,30 @@ def main():
         batch = to_cuda(batch)
 
     data_dict = build_infer_data_dict(ref_points, src_points, cfg, neighbor_limits, device)
+
+    # to_torchscript(model, 
+    #                 data_dict['features'], data_dict['lengths'][-1], data_dict['lengths'][1], data_dict['points'][-1], data_dict['points'][1], 
+    #                 data_dict['points'], data_dict['neighbors'], data_dict['subsampling'], data_dict['upsampling'])
+    make_onnx('geotransformer_custom.onnx', model, 
+              (data_dict['features'],  # 12000(6000+6000), 1
+            data_dict['lengths'], # [(6000, 6000), (2000, 2000), (1000, 1000), (200, 200)]
+               data_dict['points'], # [[12000, 3], [4000, 3], [2000, 3], [500, 3]]
+               data_dict['neighbors'],  # [[12000, 32], [4000, 32], [2000, 32], [500, 32]]
+               data_dict['subsampling'], # 
+               data_dict['upsampling'])) # 
+    exit()
+
     start_time = time.perf_counter()
     model.eval()
     with torch.no_grad():
         # T_est = model(batch)
-        T_est = model.forward_infer(data_dict)
+        T_est = model.forward(
+            data_dict['features'], data_dict['lengths'],
+            # data_dict['lengths'][-1], data_dict['lengths'][1], data_dict['points'][-1], data_dict['points'][1], 
+            data_dict['points'], # [[ref_points, src_points], [ds_points_stage1, ds_points_stage1], ..., [ds_points_stageN, ds_points_stageN]]
+            data_dict['neighbors'],  # [32,32,32,32]
+            data_dict['subsampling'],
+            data_dict['upsampling'])
     print(f"est_transform shape: {T_est}")
     end_time = time.perf_counter()
 
@@ -275,13 +313,12 @@ def main():
     vis.add_geometry(src_t_pcd)
     vis.add_geometry(ref_pcd)
 
-    # src_pcd = o3d.geometry.PointCloud()
-    # src_pcd.points = o3d.utility.Vector3dVector(src_points)
-    # src_pcd.paint_uniform_color([1, 0, 0]) # red is src_points
-    # vis.add_geometry(src_pcd)
+    src_pcd = o3d.geometry.PointCloud()
+    src_pcd.points = o3d.utility.Vector3dVector(src_points)
+    src_pcd.paint_uniform_color([1, 0, 0]) # red is src_points
+    vis.add_geometry(src_pcd)
     vis.run()
     vis.destroy_window()
-    # make_onnx('geotransformer_custom.onnx', model, (batch,))
 
 
 if __name__ == "__main__":

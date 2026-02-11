@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+from typing import List
 
 from geotransformer.modules.layers import build_dropout_layer
 
@@ -24,13 +25,35 @@ class SinusoidalPositionalEmbedding(nn.Module):
         Returns:
             embeddings: torch.Tensor (*, D)
         """
-        input_shape = emb_indices.shape
-        omegas = emb_indices.view(-1, 1, 1) * self.div_term.view(1, -1, 1)  # (-1, d_model/2, 1)
+        # input_shape = emb_indices.shape
+        # omegas = emb_indices.view(-1, 1, 1) * self.div_term.view(1, -1, 1)  # (-1, d_model/2, 1)
+        # sin_embeddings = torch.sin(omegas)
+        # cos_embeddings = torch.cos(omegas)
+        # embeddings = torch.cat([sin_embeddings, cos_embeddings], dim=2)  # (-1, d_model/2, 2)
+        # embeddings = embeddings.view(*input_shape, self.d_model)  # (*, d_model)
+        # embeddings = embeddings.detach()
+        # return embeddings
+        # 记录原始维度
+        dims = emb_indices.dim()
+
+        # flatten
+        flat = emb_indices.reshape(-1)
+
+        omegas = flat.view(-1, 1, 1) * self.div_term.view(1, -1, 1)
         sin_embeddings = torch.sin(omegas)
         cos_embeddings = torch.cos(omegas)
-        embeddings = torch.cat([sin_embeddings, cos_embeddings], dim=2)  # (-1, d_model/2, 2)
-        embeddings = embeddings.view(*input_shape, self.d_model)  # (*, d_model)
-        embeddings = embeddings.detach()
+
+        embeddings = torch.cat([sin_embeddings, cos_embeddings], dim=2)
+
+        # 构造 shape
+        shape: List[int] = []
+        for i in range(dims):
+            shape.append(emb_indices.size(i))
+
+        shape.append(self.d_model)
+
+        embeddings = embeddings.view(shape)
+
         return embeddings
 
 

@@ -8,7 +8,25 @@ from geotransformer.utils.torch import build_dataloader
 
 
 # Stack mode utilities
-
+# 填充/截取带点云
+def pad_or_trim_points(points: torch.Tensor, target_num_points, lengths: torch.Tensor):
+    points_ref, points_src = torch.split(points, lengths.tolist(), dim=0)
+    if points_ref.shape[0] < target_num_points:
+        pad_size = target_num_points - points_ref.shape[0]
+        pad_points_ref = torch.zeros((pad_size, 3), dtype=points.dtype, device=points.device)
+        points_ref = torch.cat([points_ref, pad_points_ref], dim=0)
+    else:
+        points_ref = points_ref[:target_num_points, :]
+    
+    if points_src.shape[0] < target_num_points:
+        pad_size = target_num_points - points_src.shape[0]
+        pad_points_src = torch.zeros((pad_size, 3), dtype=points.dtype, device=points.device)
+        points_src = torch.cat([points_src, pad_points_src], dim=0)
+    else:
+        points_src = points_src[:target_num_points, :]
+    points = torch.cat([points_ref, points_src], dim=0)
+    lengths = torch.LongTensor([points_ref.shape[0], points_src.shape[0]])
+    return points, lengths
 
 def precompute_data_stack_mode(points, lengths, num_stages, voxel_size, radius, neighbor_limits):
     assert num_stages == len(neighbor_limits)
@@ -21,15 +39,17 @@ def precompute_data_stack_mode(points, lengths, num_stages, voxel_size, radius, 
 
     print (f"{points.shape}, {lengths}")
 
+    points_limits_size = [6000, 4000, 2000, 500]
 
     # grid subsampling
     for i in range(num_stages):
         if i > 0:
             points, lengths = grid_subsample(points, lengths, voxel_size=voxel_size)
+        points, lengths = pad_or_trim_points(points, points_limits_size[i], lengths) 
         points_list.append(points)
         lengths_list.append(lengths)
         voxel_size *= 2
-    print (f"Stage {i}, {points.shape}, {lengths_list}")
+        print (f"Stage {i}, {points.shape} | {lengths_list}")
     # exit()    
     # radius search
     for i in range(num_stages):

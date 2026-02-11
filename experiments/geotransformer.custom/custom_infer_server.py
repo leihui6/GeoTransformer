@@ -167,7 +167,14 @@ if __name__ == "__main__":
             print ("[Python] Data dict built, running model inference...")
             model.eval()
             with torch.no_grad():
-                T_est = model.forward_infer(data_dict)
+                # T_est = model.forward_infer(data_dict)
+                T_est = model.forward(
+                    data_dict['features'], data_dict['lengths'],
+                    # data_dict['lengths'][-1], data_dict['lengths'][1], data_dict['points'][-1], data_dict['points'][1], 
+                    data_dict['points'], # [[ref_points, src_points], [ds_points_stage1, ds_points_stage1], ..., [ds_points_stageN, ds_points_stageN]]
+                    data_dict['neighbors'],  # [32,32,32,32]
+                    data_dict['subsampling'],
+                    data_dict['upsampling'])
             print ("[Python] Model inference done.")
             T_est = recover_T_from_scaled(T_est.squeeze(0).detach().cpu().numpy(), scale=5.0)
             np.set_printoptions(precision=6, suppress=True)

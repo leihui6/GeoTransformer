@@ -211,7 +211,7 @@ class GeoTransformer(nn.Module):
 
         return output_dict
     
-    def forward(self, data_dict):
+    def forward_back(self, data_dict):
         feats = data_dict['features']
         ref_length_c = data_dict['lengths'][-1][0].item()
         ref_length_f = data_dict['lengths'][1][0].item()
@@ -311,36 +311,64 @@ class GeoTransformer(nn.Module):
         output_dict = estimated_transform
         return output_dict
 
-    def forward_infer(self, data_dict):
+    def forward(self, 
+                feats, lengths, 
+                # lengths_c, lengths_f, points_c, points_f,
+                # ref_points_c, src_points_c, ref_points_f, src_points_f,
+                points, neighbors, subsampling, upsampling):
         """
         data_dict 由外部 build_infer_data_dict 构造
         所有值都是 Tensor / list[Tensor]
         不做任何几何生成
         """
+        # feats = data_dict['features']
 
-        feats = data_dict['features']
+        # # -------------------------------
+        # # 1. 用 mask 代替 .item()
+        # # -------------------------------
+        # lengths_c = data_dict['lengths'][-1]   # (B,)
+        # lengths_f = data_dict['lengths'][1]    # (B,)
 
-        # -------------------------------
-        # 1. 用 mask 代替 .item()
-        # -------------------------------
-        lengths_c = data_dict['lengths'][-1]   # (B,)
-        lengths_f = data_dict['lengths'][1]    # (B,)
+        # points_c = data_dict['points'][-1]     # (Nc, 3) c -> corase points
+        # points_f = data_dict['points'][1]      # (Nf, 3) f -> fine points
 
-        points_c = data_dict['points'][-1]     # (Nc, 3)
-        points_f = data_dict['points'][1]      # (Nf, 3)
-
-        device = points_c.device
+        # device = points_c.device
 
         # ref / src mask（B=2 时：[ref, src]）
-        ref_mask_c = torch.arange(points_c.shape[0], device=device) < lengths_c[0]
-        ref_mask_f = torch.arange(points_f.shape[0], device=device) < lengths_f[0]
+        # ref_mask_c = torch.arange(points_c.shape[0], device=device) < lengths_c[0]
+        # ref_mask_f = torch.arange(points_f.shape[0], device=device) < lengths_f[0]
 
-        ref_points_c = points_c[ref_mask_c]
-        src_points_c = points_c[~ref_mask_c]
+        # ref_points_c = points_c[ref_mask_c]
+        # src_points_c = points_c[~ref_mask_c]
 
-        ref_points_f = points_f[ref_mask_f]
-        src_points_f = points_f[~ref_mask_f]
+        # ref_points_f = points_f[ref_mask_f]
+        # src_points_f = points_f[~ref_mask_f]
 
+        # lengths: tensor([ref_count, src_count])
+        points_f = points[1]      # fine
+        points_c = points[-1]     # coarse
+
+        # 对应 lengths
+        lengths_f = lengths[1]    # (2,)
+        lengths_c = lengths[-1]   # (2,)
+
+        # 拆分 fine
+        ref_count_f = lengths_f[0]
+        src_count_f = lengths_f[1]
+
+        ref_points_f = torch.narrow(points_f, 0, 0, ref_count_f)
+        src_points_f = torch.narrow(points_f, 0, ref_count_f, src_count_f)
+
+        # 拆分 coarse
+        ref_count_c = lengths_c[0]
+        src_count_c = lengths_c[1]
+
+        ref_points_c = torch.narrow(points_c, 0, 0, ref_count_c)
+        src_points_c = torch.narrow(points_c, 0, ref_count_c, src_count_c)
+
+        # print (f"ref_points_c shape: {ref_points_c.shape}, src_points_c shape: {src_points_c.shape}")
+        # print (f"ref_points_f shape: {ref_points_f.shape}, src_points_f shape: {src_points_f.shape}")
+        # exit()
         # -------------------------------
         # 2. point → node partition（保持不变）
         # -------------------------------
@@ -368,12 +396,15 @@ class GeoTransformer(nn.Module):
         # -------------------------------
         # 3. Backbone（完全不动）
         # -------------------------------
-        feats_list = self.backbone(feats, data_dict)
+        feats_list = self.backbone(feats, points, neighbors, subsampling, upsampling)
         feats_c = feats_list[-1]
         feats_f = feats_list[0]
 
-        ref_feats_c = feats_c[ref_mask_c]
-        src_feats_c = feats_c[~ref_mask_c]
+        # ref_feats_c = feats_c[ref_mask_c]
+        # src_feats_c = feats_c[~ref_mask_c]
+        
+        ref_feats_c = torch.narrow(feats_c, 0, 0, ref_count_c)
+        src_feats_c = torch.narrow(feats_c, 0, ref_count_c, src_count_c)
 
         # -------------------------------
         # 4. Transformer
@@ -388,16 +419,16 @@ class GeoTransformer(nn.Module):
         ref_feats_c = F.normalize(ref_feats_c.squeeze(0), dim=1)
         src_feats_c = F.normalize(src_feats_c.squeeze(0), dim=1)
 
-        # -------------------------------
-        # 5. Coarse matching
-        # -------------------------------
+        # # -------------------------------
+        # # 5. Coarse matching
+        # # -------------------------------
         ref_node_corr_indices, src_node_corr_indices, node_corr_scores = self.coarse_matching(
             ref_feats_c, src_feats_c, ref_node_masks, src_node_masks
         )
 
-        # -------------------------------
-        # 6. Gather KNN patches
-        # -------------------------------
+        # # -------------------------------
+        # # 6. Gather KNN patches
+        # # -------------------------------
         ref_node_corr_knn_indices = ref_node_knn_indices[ref_node_corr_indices]
         src_node_corr_knn_indices = src_node_knn_indices[src_node_corr_indices]
 
@@ -407,8 +438,8 @@ class GeoTransformer(nn.Module):
         ref_node_corr_knn_points = ref_node_knn_points[ref_node_corr_indices]
         src_node_corr_knn_points = src_node_knn_points[src_node_corr_indices]
 
-        ref_feats_f = feats_f[ref_mask_f]
-        src_feats_f = feats_f[~ref_mask_f]
+        ref_feats_f = torch.narrow(feats_f, 0, 0, ref_count_f)
+        src_feats_f = torch.narrow(feats_f, 0, ref_count_f, src_count_f)
 
         ref_padded_feats_f = torch.cat(
             [ref_feats_f, torch.zeros_like(ref_feats_f[:1])], dim=0
@@ -424,9 +455,9 @@ class GeoTransformer(nn.Module):
             src_padded_feats_f, src_node_corr_knn_indices, dim=0
         )
 
-        # -------------------------------
-        # 7. Optimal transport
-        # -------------------------------
+        # # -------------------------------
+        # # 7. Optimal transport
+        # # -------------------------------
         matching_scores = torch.einsum(
             'bnd,bmd->bnm', ref_node_corr_knn_feats, src_node_corr_knn_feats
         )
@@ -438,6 +469,9 @@ class GeoTransformer(nn.Module):
 
         matching_scores = matching_scores[:, :-1, :-1]
 
+        # estimated_transform = torch.eye(4, device=device)  # 占位，保持输出格式正确，后续会被写回共享内存
+        # print (matching_scores)
+        # exit()
         # -------------------------------
         # 8. Fine matching & registration
         # -------------------------------
@@ -451,6 +485,7 @@ class GeoTransformer(nn.Module):
         )
 
         return estimated_transform
+        # return matching_scores
 
 
 def create_model(config):
