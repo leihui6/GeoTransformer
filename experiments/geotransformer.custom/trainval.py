@@ -38,7 +38,7 @@ class Trainer(EpochBasedTrainer):
         self.evaluator = Evaluator(cfg).cuda()
 
     def train_step(self, epoch, iteration, data_dict):
-        output_dict = self.model.forward_train(data_dict)
+        output_dict = self.model.forward(data_dict)
         loss_dict = self.loss_func(output_dict, data_dict)
         result_dict = self.evaluator(output_dict, data_dict)
         loss_dict.update(result_dict)

@@ -45,13 +45,13 @@ class KPConvFPN(nn.Module):
         self.decoder3 = UnaryBlock(init_dim * 24, init_dim * 8, group_norm)
         self.decoder2 = LastUnaryBlock(init_dim * 12, output_dim)
 
-    def forward(self, feats, points_list, neighbors_list, subsampling_list, upsampling_list):
+    def forward(self, feats, data_dict):
         feats_list = []
 
-        # points_list = data_dict['points']
-        # neighbors_list = data_dict['neighbors']
-        # subsampling_list = data_dict['subsampling']
-        # upsampling_list = data_dict['upsampling']
+        points_list = data_dict['points']
+        neighbors_list = data_dict['neighbors']
+        subsampling_list = data_dict['subsampling']
+        upsampling_list = data_dict['upsampling']
 
         feats_s1 = feats
         feats_s1 = self.encoder1_1(feats_s1, points_list[0], points_list[0], neighbors_list[0])
